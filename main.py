@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-import typer
 import httpx
 import sqlite_utils
+import typer
 
 
 def convert_to_sqlite(db_path="pbg.db"):
@@ -61,100 +61,122 @@ def convert_to_sqlite(db_path="pbg.db"):
     # Create components table
     components_records = []
     component_usage_records = []
+    processed_component_ids = set()  # Track processed components to avoid duplicates
+    processed_usage_ids = set()  # Track processed usage records to avoid duplicates
 
     # Add installed components from bikes
     for bike in data.get("bikes", []):
         if "components" in bike:
             for component in bike["components"]:
-                # Main component record (installed)
-                component_record = {
-                    "id": component["id"],
-                    "name": component["name"],
-                    "type": component["type"],
-                    "notes": component.get("notes", ""),
-                    "user_id": component["user_id"],
-                    "status": "installed",
-                    "bike_id": bike["id"],  # Track which bike it's installed on
-                    "parent_component_id": None,  # Component installed directly on bike
-                    "retired_at": (
-                        component.get("retired_at")
-                        if component.get("retired_at") != "0001-01-01T00:00:00Z"
-                        else None
-                    ),
-                }
-                components_records.append(component_record)
-
-                # Component usage data - current usage
-                if "usage" in component and component["usage"]:
-                    usage_record = {
-                        "component_id": component["id"],
-                        "usage_type": "current",
+                if component["id"] not in processed_component_ids:
+                    # Main component record (installed)
+                    component_record = {
+                        "id": component["id"],
+                        "name": component["name"],
+                        "type": component["type"],
+                        "notes": component.get("notes", ""),
+                        "user_id": component["user_id"],
+                        "status": "installed",
+                        "bike_id": bike["id"],  # Track which bike it's installed on
+                        "parent_component_id": None,  # Component installed directly on bike
+                        "retired_at": (
+                            component.get("retired_at")
+                            if component.get("retired_at") != "0001-01-01T00:00:00Z"
+                            else None
+                        ),
                     }
-                    usage_record.update(component["usage"])
-                    component_usage_records.append(usage_record)
+                    components_records.append(component_record)
+                    processed_component_ids.add(component["id"])
 
-                # Component usage data - initial usage (baseline when component was installed)
-                if "initial_usage" in component and component["initial_usage"]:
-                    initial_usage_record = {
-                        "component_id": component["id"],
-                        "usage_type": "initial",
-                    }
-                    initial_usage_record.update(component["initial_usage"])
-                    component_usage_records.append(initial_usage_record)
+                    # Component usage data - current usage (only for newly added components)
+                    if "usage" in component and component["usage"]:
+                        usage_key = f"{component['id']}_current"
+                        if usage_key not in processed_usage_ids:
+                            usage_record = {
+                                "component_id": component["id"],
+                                "usage_type": "current",
+                            }
+                            usage_record.update(component["usage"])
+                            component_usage_records.append(usage_record)
+                            processed_usage_ids.add(usage_key)
+
+                    # Component usage data - initial usage (baseline when component was installed)
+                    if "initial_usage" in component and component["initial_usage"]:
+                        usage_key = f"{component['id']}_initial"
+                        if usage_key not in processed_usage_ids:
+                            initial_usage_record = {
+                                "component_id": component["id"],
+                                "usage_type": "initial",
+                            }
+                            initial_usage_record.update(component["initial_usage"])
+                            component_usage_records.append(initial_usage_record)
+                            processed_usage_ids.add(usage_key)
 
     # Add components from the separate installed components file
     for component in data.get("components_installed", []):
-        # Determine parent-child relationships from current_installations
-        parent_component_id = None
-        bike_id = component.get("bike_id") if component.get("bike_id") else None
-        
-        # Check if this component is installed on another component
-        if "current_installations" in component and component["current_installations"]:
-            for installation in component["current_installations"]:
-                if installation.get("target_type") == "component":
-                    parent_component_id = installation.get("target_id")
-                    # If installed on a component, use that component's bike_id (if available)
-                    if not bike_id and installation.get("bike_id"):
-                        bike_id = installation.get("bike_id")
-                elif installation.get("target_type") == "bike":
-                    bike_id = installation.get("target_id")
-                    parent_component_id = None
-        
-        # Main component record (installed)
-        component_record = {
-            "id": component["id"],
-            "name": component["name"],
-            "type": component["type"],
-            "notes": component.get("notes", ""),
-            "user_id": component["user_id"],
-            "status": "installed",
-            "bike_id": bike_id,
-            "parent_component_id": parent_component_id,
-            "retired_at": (
-                component.get("retired_at")
-                if component.get("retired_at") != "0001-01-01T00:00:00Z"
-                else None
-            ),
-        }
-        components_records.append(component_record)
+        if component["id"] not in processed_component_ids:
+            # Determine parent-child relationships from current_installations
+            parent_component_id = None
+            bike_id = component.get("bike_id") if component.get("bike_id") else None
 
+            # Check if this component is installed on another component
+            if (
+                "current_installations" in component
+                and component["current_installations"]
+            ):
+                for installation in component["current_installations"]:
+                    if installation.get("target_type") == "component":
+                        parent_component_id = installation.get("target_id")
+                        # If installed on a component, use that component's bike_id (if available)
+                        if not bike_id and installation.get("bike_id"):
+                            bike_id = installation.get("bike_id")
+                    elif installation.get("target_type") == "bike":
+                        bike_id = installation.get("target_id")
+                        parent_component_id = None
+
+            # Main component record (installed)
+            component_record = {
+                "id": component["id"],
+                "name": component["name"],
+                "type": component["type"],
+                "notes": component.get("notes", ""),
+                "user_id": component["user_id"],
+                "status": "installed",
+                "bike_id": bike_id,
+                "parent_component_id": parent_component_id,
+                "retired_at": (
+                    component.get("retired_at")
+                    if component.get("retired_at") != "0001-01-01T00:00:00Z"
+                    else None
+                ),
+            }
+            components_records.append(component_record)
+            processed_component_ids.add(component["id"])
+
+        # Always process usage data for components (whether they were added as a component record or not)
         # Component usage data - current usage
         if "usage" in component and component["usage"]:
-            usage_record = {
-                "component_id": component["id"],
-                "usage_type": "current",
-            }
-            usage_record.update(component["usage"])
-            component_usage_records.append(usage_record)
+            usage_key = f"{component['id']}_current"
+            if usage_key not in processed_usage_ids:
+                usage_record = {
+                    "component_id": component["id"],
+                    "usage_type": "current",
+                }
+                usage_record.update(component["usage"])
+                component_usage_records.append(usage_record)
+                processed_usage_ids.add(usage_key)
 
         # Component usage data - initial usage (baseline when component was installed)
         if "initial_usage" in component and component["initial_usage"]:
-            initial_usage_record = {
-                "component_id": component["id"],
-                "usage_type": "initial",
-            }
-            initial_usage_record.update(component["initial_usage"])
-            component_usage_records.append(initial_usage_record)
+            usage_key = f"{component['id']}_initial"
+            if usage_key not in processed_usage_ids:
+                initial_usage_record = {
+                    "component_id": component["id"],
+                    "usage_type": "initial",
+                }
+                initial_usage_record.update(component["initial_usage"])
+                component_usage_records.append(initial_usage_record)
+                processed_usage_ids.add(usage_key)
 
     # Add retired and not-installed components
     all_components = data.get("components_retired", []) + data.get(
@@ -211,25 +233,38 @@ def convert_to_sqlite(db_path="pbg.db"):
         if table_name in db.table_names():
             db[table_name].drop()
 
-    # Insert data into database
+    # Insert data into database with proper constraints
     if bikes_records:
-        db["bikes"].insert_all(bikes_records)
+        db["bikes"].insert_all(bikes_records, pk="id")
         print(f"Inserted {len(bikes_records)} bikes")
 
     if usage_records:
-        db["bike_usage"].insert_all(usage_records)
+        db["bike_usage"].insert_all(
+            usage_records, foreign_keys=[("bike_id", "bikes", "id")]
+        )
         print(f"Inserted {len(usage_records)} bike usage records")
 
     if strava_records:
-        db["bike_strava"].insert_all(strava_records)
+        db["bike_strava"].insert_all(
+            strava_records, foreign_keys=[("bike_id", "bikes", "id")]
+        )
         print(f"Inserted {len(strava_records)} Strava bike records")
 
     if components_records:
-        db["components"].insert_all(components_records)
+        db["components"].insert_all(
+            components_records,
+            pk="id",
+            foreign_keys=[
+                ("bike_id", "bikes", "id"),
+                ("parent_component_id", "components", "id"),
+            ],
+        )
         print(f"Inserted {len(components_records)} components")
 
     if component_usage_records:
-        db["component_usage"].insert_all(component_usage_records)
+        db["component_usage"].insert_all(
+            component_usage_records, foreign_keys=[("component_id", "components", "id")]
+        )
         print(f"Inserted {len(component_usage_records)} component usage records")
 
     # Create indexes for better performance
@@ -415,9 +450,17 @@ def load_bearer_token(token_arg):
 
 
 def main(
-    update: bool = typer.Option(False, "--update", help="Download and update the data files"),
-    token: str = typer.Option(None, "--token", help="Bearer token for ProBikeGarage API authentication"),
-    to_sqlite: str = typer.Option(None, "--to-sqlite", help="Convert JSON files to SQLite database (specify database path)")
+    update: bool = typer.Option(
+        False, "--update", help="Download and update the data files"
+    ),
+    token: str = typer.Option(
+        None, "--token", help="Bearer token for ProBikeGarage API authentication"
+    ),
+    to_sqlite: str = typer.Option(
+        None,
+        "--to-sqlite",
+        help="Convert JSON files to SQLite database (specify database path)",
+    ),
 ):
     """Download ProBikeGarage data to JSON files and optionally convert to SQLite."""
 
@@ -437,9 +480,7 @@ def main(
         print(
             "Error: No bearer token provided. Use --token option or create .secret.json file."
         )
-        print(
-            'Example .secret.json: {"bearer_token": "your-token-here"}'
-        )
+        print('Example .secret.json: {"bearer_token": "your-token-here"}')
         return
 
     # Download data to the data directory
