@@ -15,6 +15,7 @@ def convert_to_sqlite(db_path="pbg.db"):
         "bikes": "data/bikes.json",
         "components_retired": "data/components-retired.json",
         "components_notinstalled": "data/components-notinstalled.json",
+        "components_installed": "data/components-installed.json",
     }
 
     data = {}
@@ -74,6 +75,7 @@ def convert_to_sqlite(db_path="pbg.db"):
                     "user_id": component["user_id"],
                     "status": "installed",
                     "bike_id": bike["id"],  # Track which bike it's installed on
+                    "parent_component_id": None,  # Component installed directly on bike
                     "retired_at": (
                         component.get("retired_at")
                         if component.get("retired_at") != "0001-01-01T00:00:00Z"
@@ -100,6 +102,60 @@ def convert_to_sqlite(db_path="pbg.db"):
                     initial_usage_record.update(component["initial_usage"])
                     component_usage_records.append(initial_usage_record)
 
+    # Add components from the separate installed components file
+    for component in data.get("components_installed", []):
+        # Determine parent-child relationships from current_installations
+        parent_component_id = None
+        bike_id = component.get("bike_id") if component.get("bike_id") else None
+        
+        # Check if this component is installed on another component
+        if "current_installations" in component and component["current_installations"]:
+            for installation in component["current_installations"]:
+                if installation.get("target_type") == "component":
+                    parent_component_id = installation.get("target_id")
+                    # If installed on a component, use that component's bike_id (if available)
+                    if not bike_id and installation.get("bike_id"):
+                        bike_id = installation.get("bike_id")
+                elif installation.get("target_type") == "bike":
+                    bike_id = installation.get("target_id")
+                    parent_component_id = None
+        
+        # Main component record (installed)
+        component_record = {
+            "id": component["id"],
+            "name": component["name"],
+            "type": component["type"],
+            "notes": component.get("notes", ""),
+            "user_id": component["user_id"],
+            "status": "installed",
+            "bike_id": bike_id,
+            "parent_component_id": parent_component_id,
+            "retired_at": (
+                component.get("retired_at")
+                if component.get("retired_at") != "0001-01-01T00:00:00Z"
+                else None
+            ),
+        }
+        components_records.append(component_record)
+
+        # Component usage data - current usage
+        if "usage" in component and component["usage"]:
+            usage_record = {
+                "component_id": component["id"],
+                "usage_type": "current",
+            }
+            usage_record.update(component["usage"])
+            component_usage_records.append(usage_record)
+
+        # Component usage data - initial usage (baseline when component was installed)
+        if "initial_usage" in component and component["initial_usage"]:
+            initial_usage_record = {
+                "component_id": component["id"],
+                "usage_type": "initial",
+            }
+            initial_usage_record.update(component["initial_usage"])
+            component_usage_records.append(initial_usage_record)
+
     # Add retired and not-installed components
     all_components = data.get("components_retired", []) + data.get(
         "components_notinstalled", []
@@ -119,6 +175,7 @@ def convert_to_sqlite(db_path="pbg.db"):
                 else "not_installed"
             ),
             "bike_id": None,  # Not currently installed on any bike
+            "parent_component_id": None,  # Not currently installed on any component
             "retired_at": (
                 component.get("retired_at")
                 if component.get("retired_at") != "0001-01-01T00:00:00Z"
@@ -180,6 +237,8 @@ def convert_to_sqlite(db_path="pbg.db"):
         db["bikes"].create_index(["user_id"], if_not_exists=True)
         db["components"].create_index(["user_id"], if_not_exists=True)
         db["components"].create_index(["type"], if_not_exists=True)
+        db["components"].create_index(["bike_id"], if_not_exists=True)
+        db["components"].create_index(["parent_component_id"], if_not_exists=True)
         db["bike_usage"].create_index(["bike_id"], if_not_exists=True)
         db["component_usage"].create_index(["component_id"], if_not_exists=True)
         print("Created database indexes")
@@ -300,6 +359,10 @@ def download_data(bearer_token, output_dir="data"):
         (
             "https://api.probikegarage.com/components?sort=name&filter=not-installed",
             f"{output_dir}/components-notinstalled.json",
+        ),
+        (
+            "https://api.probikegarage.com/components?sort=name&filter=installed",
+            f"{output_dir}/components-installed.json",
         ),
     ]
 
