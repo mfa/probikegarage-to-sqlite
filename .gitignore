@@ -1,5 +1,6 @@
 # Data
 data
+pbg.db
 
 # Secret files
 .secret.json

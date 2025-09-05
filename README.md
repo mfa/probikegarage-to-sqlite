@@ -1,6 +1,8 @@
-# ProBikeGarage to JSON
+# ProBikeGarage to SQLite
 
-A Python tool to download and save ProBikeGarage data to JSON files for analysis and backup purposes.
+A Python tool to download ProBikeGarage data and convert it to SQLite database for analysis and backup purposes.
+
+This project used Anthropic Claude Sonnet 4 a lot to build this faster.
 
 ## Overview
 
@@ -12,6 +14,7 @@ This tool connects to the ProBikeGarage API to download your bike and component 
 - Retrieves retired components data
 - Fetches non-installed components inventory
 - Saves all data as formatted JSON files for easy analysis
+- **Converts JSON data to normalized SQLite database**
 - Built-in error handling for network and API issues
 
 ## Requirements
@@ -19,26 +22,11 @@ This tool connects to the ProBikeGarage API to download your bike and component 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) package manager
 
-## Installation
-
-1. Clone this repository:
-```bash
-git clone <repository-url>
-cd probikegarage-to-sqlite
-```
-
 ## Usage
 
 ### Basic Usage
 
-Run the script with the `--update` flag to download data:
-
-```bash
-uv run main.py --update
-```
-
-### With Token Parameter
-
+Run the script with the `--update` flag to download data.
 You can provide the bearer token directly via command line:
 
 ```bash
@@ -61,50 +49,69 @@ Then run:
 uv run main.py --update
 ```
 
-The tool will download three JSON files to the current directory:
-- `bikes.json` - Detailed information about your bikes including usage statistics
-- `components-retired.json` - Components that have been retired from service
-- `components-notinstalled.json` - Components in your inventory that are not currently installed
+### Convert to SQLite Database
 
-## Authentication
+Convert the downloaded JSON files to a SQLite database:
 
-The tool uses a bearer token for API authentication. You'll need to obtain your own token from ProBikeGarage:
+```bash
+uv run main.py --to-sqlite pbg.db
+```
 
-1. Log into your ProBikeGarage account in a web browser
-2. Open developer tools and monitor network requests
-3. Find API calls and extract the `Authorization: Bearer` token
-4. Use the token either via `--token` parameter or in `.secret.json` file
+This creates a normalized SQLite database with the following tables:
 
-⚠️ **Security Note**: The bearer token provides access to your ProBikeGarage data. Keep it secure and don't share it. Add `.secret.json` to your `.gitignore` to avoid accidentally committing it.
+#### Database Tables
 
-## Data Structure
+- **bikes** - Basic bike information (id, name, user_id, default, retired_at, etc.)
+- **bike_usage** - Detailed usage statistics for each bike (rides, distance, moving_time, elevation_gain, etc.)
+- **bike_strava** - Strava integration data for bikes (strava_id, brand_name, model_name, etc.)
+- **components** - Component information (id, name, type, notes, status, bike_id, retired_at)
+  - status: `installed`, `retired`, or `not_installed`
+  - bike_id: Links to bikes table for installed components (NULL for others)
+  - retired_at: Date when component was retired (NULL for installed/not_installed)
+- **component_usage** - Usage statistics for each component
+  - usage_type: `current` (total usage) or `initial` (usage when component was installed)
+  - Allows calculation of component-specific usage by subtracting initial from current
 
-### Bikes Data
-Contains detailed bike information including:
-- Bike ID, name, and user information
-- Strava integration details (if connected)
-- Usage statistics (rides, distance, moving time, elevation gain)
-- Component information and maintenance records
+#### Database Views
 
-### Components Data
-Includes component details such as:
-- Component ID, name, and type
-- Installation and retirement dates
-- Usage tracking and maintenance history
-- Brand and model information
+- **component_summary** - Simplified view joining components with their usage data
+  - Fields: name, type, status, bike, retired_at, rides, distance_km, moving_time_hours, elevation_gain
+  - Distance converted to kilometers, moving time converted to hours for easier reading
+  - Includes retirement dates for lifecycle analysis
+  - Clean, focused view for easy component analysis
+
+- **component_lifetime_analysis** - Comprehensive lifetime analysis by component type
+  - Inventory counts: total_components, currently_installed, retired_count, inventory_count
+  - Retirement metrics: avg/min/max km at retirement, avg hours/rides at retirement
+  - Current usage: avg km/hours/rides for currently installed components
+  - Timeline: earliest/latest retirement dates, replacement frequency
+  - Perfect for maintenance planning and component lifecycle insights
+
+
+### Explore with Datasette
+
+Launch a web interface to explore your data interactively:
+
+```bash
+uv run datasette pbg.db
+```
+
+This will start a local web server (typically at http://localhost:8001) where you can:
+
+- Browse all tables and their data
+- Run custom SQL queries with syntax highlighting
+- Export results as CSV, JSON, or other formats
+- Create charts and visualizations
+- Filter and sort data interactively
+
+The Datasette interface makes it easy to explore patterns in your bike usage, component lifecycle, and maintenance data without writing SQL.
 
 ## Dependencies
 
 - **click** - Command-line interface framework
 - **httpx** - HTTP client for API requests
-
-## Alternative Download Method
-
-A shell script version is also included (`download.sh`) for manual data retrieval using curl commands.
-
-## Contributing
-
-Feel free to submit issues and feature requests. This is a simple tool for personal data backup and analysis.
+- **sqlite-utils** - SQLite database utilities for data conversion
+- **datasette** - Web interface for exploring SQLite databases
 
 ## License
 
