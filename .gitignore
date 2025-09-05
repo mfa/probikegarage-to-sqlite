@@ -1,6 +1,7 @@
 # Data
 data
 pbg.db
+test.db
 
 # Secret files
 .secret.json
