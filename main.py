@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import click
+import typer
 import httpx
 import sqlite_utils
 
@@ -22,9 +22,9 @@ def convert_to_sqlite(db_path="pbg.db"):
         if Path(filename).exists():
             with open(filename, "r", encoding="utf-8") as f:
                 data[key] = json.load(f)
-                click.echo(f"Loaded {len(data[key])} records from {filename}")
+                print(f"Loaded {len(data[key])} records from {filename}")
         else:
-            click.echo(f"Warning: {filename} not found, skipping")
+            print(f"Warning: {filename} not found, skipping")
             data[key] = []
 
     # Create bikes table
@@ -157,23 +157,23 @@ def convert_to_sqlite(db_path="pbg.db"):
     # Insert data into database
     if bikes_records:
         db["bikes"].insert_all(bikes_records)
-        click.echo(f"Inserted {len(bikes_records)} bikes")
+        print(f"Inserted {len(bikes_records)} bikes")
 
     if usage_records:
         db["bike_usage"].insert_all(usage_records)
-        click.echo(f"Inserted {len(usage_records)} bike usage records")
+        print(f"Inserted {len(usage_records)} bike usage records")
 
     if strava_records:
         db["bike_strava"].insert_all(strava_records)
-        click.echo(f"Inserted {len(strava_records)} Strava bike records")
+        print(f"Inserted {len(strava_records)} Strava bike records")
 
     if components_records:
         db["components"].insert_all(components_records)
-        click.echo(f"Inserted {len(components_records)} components")
+        print(f"Inserted {len(components_records)} components")
 
     if component_usage_records:
         db["component_usage"].insert_all(component_usage_records)
-        click.echo(f"Inserted {len(component_usage_records)} component usage records")
+        print(f"Inserted {len(component_usage_records)} component usage records")
 
     # Create indexes for better performance
     try:
@@ -182,9 +182,9 @@ def convert_to_sqlite(db_path="pbg.db"):
         db["components"].create_index(["type"], if_not_exists=True)
         db["bike_usage"].create_index(["bike_id"], if_not_exists=True)
         db["component_usage"].create_index(["component_id"], if_not_exists=True)
-        click.echo("Created database indexes")
+        print("Created database indexes")
     except Exception as e:
-        click.echo(f"Note: Could not create some indexes: {e}")
+        print(f"Note: Could not create some indexes: {e}")
 
     # Create views for easier querying
     try:
@@ -210,7 +210,7 @@ def convert_to_sqlite(db_path="pbg.db"):
         """
 
         db.execute(component_summary_sql)
-        click.echo("Created component_summary view")
+        print("Created component_summary view")
 
         # Create component lifetime analysis view
         db.execute("DROP VIEW IF EXISTS component_lifetime_analysis")
@@ -261,11 +261,11 @@ def convert_to_sqlite(db_path="pbg.db"):
         """
 
         db.execute(component_lifetime_analysis_sql)
-        click.echo("Created component_lifetime_analysis view")
+        print("Created component_lifetime_analysis view")
     except Exception as e:
-        click.echo(f"Note: Could not create views: {e}")
+        print(f"Note: Could not create views: {e}")
 
-    click.echo(f"SQLite database created: {db_path}")
+    print(f"SQLite database created: {db_path}")
     return db_path
 
 
@@ -307,7 +307,7 @@ def download_data(bearer_token, output_dir="data"):
     with httpx.Client() as client:
         for url, filepath in urls_and_files:
             filename = Path(filepath).name
-            click.echo(f"Downloading {filename}...")
+            print(f"Downloading {filename}...")
             try:
                 response = client.get(url, headers=headers)
                 response.raise_for_status()
@@ -317,19 +317,19 @@ def download_data(bearer_token, output_dir="data"):
                 with open(filepath, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
-                click.echo(f"Saved {filepath}")
+                print(f"Saved {filepath}")
                 success_count += 1
 
             except httpx.HTTPStatusError as e:
-                click.echo(f"HTTP error downloading {filename}: {e}", err=True)
+                print(f"HTTP error downloading {filename}: {e}")
             except httpx.RequestError as e:
-                click.echo(f"Request error downloading {filename}: {e}", err=True)
+                print(f"Request error downloading {filename}: {e}")
             except json.JSONDecodeError as e:
-                click.echo(f"JSON decode error for {filename}: {e}", err=True)
+                print(f"JSON decode error for {filename}: {e}")
             except Exception as e:
-                click.echo(f"Unexpected error downloading {filename}: {e}", err=True)
+                print(f"Unexpected error downloading {filename}: {e}")
 
-    click.echo(f"Download complete: {success_count}/{len(urls_and_files)} files saved")
+    print(f"Download complete: {success_count}/{len(urls_and_files)} files saved")
     return success_count == len(urls_and_files)
 
 
@@ -345,19 +345,17 @@ def load_bearer_token(token_arg):
                 secrets = json.load(f)
                 return secrets.get("bearer_token")
         except (json.JSONDecodeError, KeyError) as e:
-            click.echo(f"Error reading .secret.json: {e}", err=True)
+            print(f"Error reading .secret.json: {e}")
             return None
 
     return None
 
 
-@click.command()
-@click.option("--update", is_flag=True, help="Download and update the data files")
-@click.option("--token", help="Bearer token for ProBikeGarage API authentication")
-@click.option(
-    "--to-sqlite", help="Convert JSON files to SQLite database (specify database path)"
-)
-def main(update, token, to_sqlite):
+def main(
+    update: bool = typer.Option(False, "--update", help="Download and update the data files"),
+    token: str = typer.Option(None, "--token", help="Bearer token for ProBikeGarage API authentication"),
+    to_sqlite: str = typer.Option(None, "--to-sqlite", help="Convert JSON files to SQLite database (specify database path)")
+):
     """Download ProBikeGarage data to JSON files and optionally convert to SQLite."""
 
     # Handle SQLite conversion
@@ -366,27 +364,26 @@ def main(update, token, to_sqlite):
         return
 
     if not update:
-        click.echo(
+        print(
             "Use --update to download data files or --to-sqlite to convert existing files"
         )
         return
 
     bearer_token = load_bearer_token(token)
     if not bearer_token:
-        click.echo(
-            "Error: No bearer token provided. Use --token option or create .secret.json file.",
-            err=True,
+        print(
+            "Error: No bearer token provided. Use --token option or create .secret.json file."
         )
-        click.echo(
-            'Example .secret.json: {"bearer_token": "your-token-here"}', err=True
+        print(
+            'Example .secret.json: {"bearer_token": "your-token-here"}'
         )
         return
 
     # Download data to the data directory
     success = download_data(bearer_token)
     if not success:
-        click.echo("Some downloads failed. Check the error messages above.", err=True)
+        print("Some downloads failed. Check the error messages above.")
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
