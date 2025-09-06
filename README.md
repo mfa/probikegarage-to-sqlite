@@ -106,6 +106,12 @@ This will start a local web server (typically at http://localhost:8001) where yo
 
 The Datasette interface makes it easy to explore patterns in your bike usage, component lifecycle, and maintenance data without writing SQL.
 
+## Limitations
+
+Currently, the following ProBikeGarage features are not supported:
+- **Snoozed maintenance** - Components with snoozed maintenance reminders are not handled specially
+- **Un-retire** - Components that are un-retired (moved from retired back to active) may have incomplete state tracking
+
 ## Dependencies
 
 - **click** - Command-line interface framework
