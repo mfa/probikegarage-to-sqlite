@@ -28,6 +28,55 @@ def convert_to_sqlite(db_path="pbg.db"):
             print(f"Warning: {filename} not found, skipping")
             data[key] = []
 
+    # Load component details with installation data
+    component_details = {}
+    installations_data = []
+    details_dir = Path("data/component_details")
+    if details_dir.exists():
+        for detail_file in details_dir.glob("*.json"):
+            with open(detail_file, "r", encoding="utf-8") as f:
+                detail_data = json.load(f)
+                component_id = detail_data["component"]["id"]
+                component_details[component_id] = detail_data
+
+                # Collect all installations
+                for installation in detail_data.get("installations", []):
+                    installations_data.append(installation)
+        print(
+            f"Loaded {len(component_details)} component details with {len(installations_data)} installations"
+        )
+
+    # Function to find the ultimate bike_id for a component by traversing the hierarchy
+    def find_ultimate_bike_id(component_id, visited=None):
+        if visited is None:
+            visited = set()
+
+        if component_id in visited:
+            return None  # Circular reference
+        visited.add(component_id)
+
+        # Find installations for this component
+        component_installations = [
+            inst for inst in installations_data if inst["component_id"] == component_id
+        ]
+
+        for installation in component_installations:
+            # If installed directly on bike, return bike_id
+            if installation["target_type"] == "bike" and installation.get("bike_id"):
+                return installation["bike_id"]
+
+            # If installed on another component, traverse up
+            if installation["target_type"] == "component" and installation.get(
+                "target_id"
+            ):
+                parent_bike_id = find_ultimate_bike_id(
+                    installation["target_id"], visited.copy()
+                )
+                if parent_bike_id:
+                    return parent_bike_id
+
+        return None
+
     # Create bikes table
     bikes_records = []
     usage_records = []
@@ -115,24 +164,18 @@ def convert_to_sqlite(db_path="pbg.db"):
     # Add components from the separate installed components file
     for component in data.get("components_installed", []):
         if component["id"] not in processed_component_ids:
-            # Determine parent-child relationships from current_installations
-            parent_component_id = None
-            bike_id = component.get("bike_id") if component.get("bike_id") else None
+            # Find ultimate bike_id through installation hierarchy
+            ultimate_bike_id = find_ultimate_bike_id(component["id"])
 
-            # Check if this component is installed on another component
-            if (
-                "current_installations" in component
-                and component["current_installations"]
-            ):
-                for installation in component["current_installations"]:
-                    if installation.get("target_type") == "component":
-                        parent_component_id = installation.get("target_id")
-                        # If installed on a component, use that component's bike_id (if available)
-                        if not bike_id and installation.get("bike_id"):
-                            bike_id = installation.get("bike_id")
-                    elif installation.get("target_type") == "bike":
-                        bike_id = installation.get("target_id")
-                        parent_component_id = None
+            # Find current parent component (if installed on a component)
+            parent_component_id = None
+            for installation in installations_data:
+                if (
+                    installation["component_id"] == component["id"]
+                    and installation["target_type"] == "component"
+                ):
+                    parent_component_id = installation["target_id"]
+                    break
 
             # Main component record (installed)
             component_record = {
@@ -142,7 +185,7 @@ def convert_to_sqlite(db_path="pbg.db"):
                 "notes": component.get("notes", ""),
                 "user_id": component["user_id"],
                 "status": "installed",
-                "bike_id": bike_id,
+                "bike_id": ultimate_bike_id,
                 "parent_component_id": parent_component_id,
                 "retired_at": (
                     component.get("retired_at")
@@ -184,6 +227,19 @@ def convert_to_sqlite(db_path="pbg.db"):
     )
 
     for component in all_components:
+        # Find ultimate bike_id through installation hierarchy
+        ultimate_bike_id = find_ultimate_bike_id(component["id"])
+
+        # Find current parent component (if installed on a component)
+        parent_component_id = None
+        for installation in installations_data:
+            if (
+                installation["component_id"] == component["id"]
+                and installation["target_type"] == "component"
+            ):
+                parent_component_id = installation["target_id"]
+                break
+
         # Main component record
         component_record = {
             "id": component["id"],
@@ -196,8 +252,8 @@ def convert_to_sqlite(db_path="pbg.db"):
                 if component in data.get("components_retired", [])
                 else "not_installed"
             ),
-            "bike_id": None,  # Not currently installed on any bike
-            "parent_component_id": None,  # Not currently installed on any component
+            "bike_id": ultimate_bike_id,
+            "parent_component_id": parent_component_id,
             "retired_at": (
                 component.get("retired_at")
                 if component.get("retired_at") != "0001-01-01T00:00:00Z"
@@ -221,6 +277,34 @@ def convert_to_sqlite(db_path="pbg.db"):
             initial_usage_record.update(component["initial_usage"])
             component_usage_records.append(initial_usage_record)
 
+    # Create installations table
+    installation_records = []
+    for installation in installations_data:
+        installation_record = {
+            "id": installation["id"],
+            "user_id": installation["user_id"],
+            "component_id": installation["component_id"],
+            "target_type": installation["target_type"],
+            "target_id": installation["target_id"],
+            "bike_id": (
+                installation.get("bike_id") if installation.get("bike_id") else None
+            ),
+            "added_at": installation.get("added_at"),
+            "removed_at": (
+                installation.get("removed_at")
+                if installation.get("removed_at") != "0001-01-01T00:00:00Z"
+                else None
+            ),
+            "ride_tags": json.dumps(installation.get("ride_tags", [])),
+            "included_ride_tags": json.dumps(
+                installation.get("included_ride_tags", [])
+            ),
+            "excluded_ride_tags": json.dumps(
+                installation.get("excluded_ride_tags", [])
+            ),
+        }
+        installation_records.append(installation_record)
+
     # Drop existing tables to handle schema changes
     tables_to_recreate = [
         "bikes",
@@ -228,6 +312,7 @@ def convert_to_sqlite(db_path="pbg.db"):
         "bike_strava",
         "components",
         "component_usage",
+        "installations",
     ]
     for table_name in tables_to_recreate:
         if table_name in db.table_names():
@@ -267,6 +352,17 @@ def convert_to_sqlite(db_path="pbg.db"):
         )
         print(f"Inserted {len(component_usage_records)} component usage records")
 
+    if installation_records:
+        db["installations"].insert_all(
+            installation_records,
+            pk="id",
+            foreign_keys=[
+                ("component_id", "components", "id"),
+                ("bike_id", "bikes", "id"),
+            ],
+        )
+        print(f"Inserted {len(installation_records)} installation records")
+
     # Create indexes for better performance
     try:
         db["bikes"].create_index(["user_id"], if_not_exists=True)
@@ -276,6 +372,9 @@ def convert_to_sqlite(db_path="pbg.db"):
         db["components"].create_index(["parent_component_id"], if_not_exists=True)
         db["bike_usage"].create_index(["bike_id"], if_not_exists=True)
         db["component_usage"].create_index(["component_id"], if_not_exists=True)
+        db["installations"].create_index(["component_id"], if_not_exists=True)
+        db["installations"].create_index(["target_id"], if_not_exists=True)
+        db["installations"].create_index(["bike_id"], if_not_exists=True)
         print("Created database indexes")
     except Exception as e:
         print(f"Note: Could not create some indexes: {e}")
