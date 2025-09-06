@@ -313,6 +313,7 @@ def convert_to_sqlite(db_path="pbg.db"):
         "components",
         "component_usage",
         "installations",
+        "component_lifetime_analysis",
     ]
     for table_name in tables_to_recreate:
         if table_name in db.table_names():
@@ -405,12 +406,11 @@ def convert_to_sqlite(db_path="pbg.db"):
         db.execute(component_summary_sql)
         print("Created component_summary view")
 
-        # Create component lifetime analysis view
-        db.execute("DROP VIEW IF EXISTS component_lifetime_analysis")
-
+        # Create component lifetime analysis materialized table
         component_lifetime_analysis_sql = """
-        CREATE VIEW component_lifetime_analysis AS
+        CREATE TABLE component_lifetime_analysis AS
         SELECT
+            bike,
             type,
             -- Counts by status
             COUNT(*) as total_components,
@@ -448,13 +448,13 @@ def convert_to_sqlite(db_path="pbg.db"):
             END as avg_years_between_replacements
             
         FROM component_summary
-        GROUP BY type
+        GROUP BY bike, type
         HAVING COUNT(*) > 0
-        ORDER BY total_components DESC, retired_count DESC
+        ORDER BY bike, total_components DESC, retired_count DESC
         """
 
         db.execute(component_lifetime_analysis_sql)
-        print("Created component_lifetime_analysis view")
+        print("Created component_lifetime_analysis materialized table")
     except Exception as e:
         print(f"Note: Could not create views: {e}")
 

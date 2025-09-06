@@ -72,20 +72,22 @@ This creates a normalized SQLite database with the following tables:
   - usage_type: `current` (total usage) or `initial` (usage when component was installed)
   - Allows calculation of component-specific usage by subtracting initial from current
 
-#### Database Views
+#### Database Views & Analysis Tables
 
-- **component_summary** - Simplified view joining components with their usage data
+- **component_summary** (view) - Simplified view joining components with their usage data
   - Fields: name, type, status, bike, retired_at, rides, distance_km, moving_time_hours, elevation_gain
   - Distance converted to kilometers, moving time converted to hours for easier reading
   - Includes retirement dates for lifecycle analysis
   - Clean, focused view for easy component analysis
 
-- **component_lifetime_analysis** - Comprehensive lifetime analysis by component type
+- **component_lifetime_analysis** (materialized table) - Comprehensive lifetime analysis by bike and component type
+  - Materialized table (not view) that supports Datasette faceting and filtering
+  - Groups analysis by bike and component type for meaningful comparisons
   - Inventory counts: total_components, currently_installed, retired_count, inventory_count
   - Retirement metrics: avg/min/max km at retirement, avg hours/rides at retirement
   - Current usage: avg km/hours/rides for currently installed components
   - Timeline: earliest/latest retirement dates, replacement frequency
-  - Perfect for maintenance planning and component lifecycle insights
+  - Perfect for maintenance planning and component lifecycle insights per bike
 
 
 ### Explore with Datasette
