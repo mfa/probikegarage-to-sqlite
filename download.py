@@ -124,17 +124,33 @@ def download_component_details(bearer_token, output_dir="data/component_details"
             component_source_type = component["_source_type"]
             component_api_type = component.get("type", "unknown")
 
-            # Create filename with component type: uuid--type.json
+            # Create filename with component type and retired state: uuid--type[--RETIRED].json
             safe_type = component_api_type.replace("/", "-").replace(" ", "-")
-            output_file = Path(output_dir) / f"{component_id}--{safe_type}.json"
-
-            # Different strategies based on component type
+            base_filename = f"{component_id}--{safe_type}"
+            
             if component_source_type == "retired":
-                # Retired components: only download if file doesn't exist
+                output_file = Path(output_dir) / f"{base_filename}--RETIRED.json"
+                active_file = Path(output_dir) / f"{base_filename}.json"
+                
+                # Skip if retired file already exists
                 if output_file.exists():
                     skipped_count += 1
                     continue
+                    
+                # Remove old active file if it exists (component transitioned to retired)
+                if active_file.exists():
+                    active_file.unlink()
+                    print(f"Removed old active file for newly retired component: {component_name}")
             else:
+                output_file = Path(output_dir) / f"{base_filename}.json"
+                retired_file = Path(output_dir) / f"{base_filename}--RETIRED.json"
+                
+                # If retired file exists, this component was previously retired but is now active again
+                # This is unusual but we should handle it
+                if retired_file.exists():
+                    retired_file.unlink()
+                    print(f"Removed old retired file for reactivated component: {component_name}")
+                
                 # Active components (installed/not_installed): always update
                 if output_file.exists():
                     updated_count += 1
