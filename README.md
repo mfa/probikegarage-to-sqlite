@@ -6,7 +6,8 @@ This project used Anthropic Claude Sonnet 4 a lot to build this faster.
 
 ## Overview
 
-This tool connects to the ProBikeGarage API to download your bike and component data, saving it locally as JSON files. ProBikeGarage is a bike maintenance tracking application that helps cyclists manage their bikes and components.
+This tool connects to the ProBikeGarage API to download your bike and component data, saving it locally as JSON files.
+ProBikeGarage is a bike maintenance tracking application that helps cyclists manage their bikes and components.
 
 ## Features
 
@@ -14,7 +15,7 @@ This tool connects to the ProBikeGarage API to download your bike and component 
 - Retrieves retired components data
 - Fetches non-installed components inventory
 - Saves all data as formatted JSON files for easy analysis
-- **Converts JSON data to normalized SQLite database**
+- Converts JSON data to normalized SQLite database
 - Built-in error handling for network and API issues
 
 ## Requirements
@@ -103,7 +104,6 @@ This will start a local web server (typically at http://localhost:8001) where yo
 - Browse all tables and their data
 - Run custom SQL queries with syntax highlighting
 - Export results as CSV, JSON, or other formats
-- Create charts and visualizations
 - Filter and sort data interactively
 
 The Datasette interface makes it easy to explore patterns in your bike usage, component lifecycle, and maintenance data without writing SQL.
@@ -116,7 +116,7 @@ Currently, the following ProBikeGarage features are not supported:
 
 ## Dependencies
 
-- **click** - Command-line interface framework
+- **typer** - Command-line interface framework
 - **httpx** - HTTP client for API requests
 - **sqlite-utils** - SQLite database utilities for data conversion
 - **datasette** - Web interface for exploring SQLite databases
