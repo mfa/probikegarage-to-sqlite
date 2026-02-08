@@ -393,6 +393,7 @@ def convert_to_sqlite(db_path="pbg.db"):
             c.type,
             c.status,
             b.name as bike,
+            i.added_at,
             c.retired_at,
             cu_current.rides,
             ROUND(cu_current.distance / 1000.0, 2) as distance_km,
@@ -401,6 +402,13 @@ def convert_to_sqlite(db_path="pbg.db"):
         FROM components c
         LEFT JOIN bikes b ON c.bike_id = b.id
         LEFT JOIN component_usage cu_current ON c.id = cu_current.component_id AND cu_current.usage_type = 'current'
+        LEFT JOIN (
+            SELECT component_id, MIN(added_at) as added_at
+            FROM installations
+            WHERE added_at != '0001-01-01T00:00:00Z'
+            GROUP BY component_id
+        ) i ON c.id = i.component_id
+        ORDER BY i.added_at DESC
         """
 
         db.execute(component_summary_sql)
